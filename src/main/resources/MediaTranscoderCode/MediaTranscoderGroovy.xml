@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * See the NOTICE file distributed with this work for additional
+ * information regarding copyright ownership.
+ *
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free
+ * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
+-->
+
+<xwikidoc version="1.1">
+  <web>MediaTranscoderCode</web>
+  <name>MediaTranscoderGroovy</name>
+  <language/>
+  <defaultLanguage/>
+  <translation>0</translation>
+  <creator>xwiki:XWiki.Admin</creator>
+  <creationDate>1441868628000</creationDate>
+  <author>xwiki:XWiki.Admin</author>
+  <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
+  <date>1441869423000</date>
+  <contentUpdateDate>1441869395000</contentUpdateDate>
+  <version>1.1</version>
+  <title>MediaTranscoderGroovy</title>
+  <comment/>
+  <minorEdit>false</minorEdit>
+  <syntaxId>xwiki/2.1</syntaxId>
+  <hidden>false</hidden>
+  <content>/**
+* Groovy class : MediaTranscoder 
+* This class is used to decode, encode, transcode, stream video and audio media, it is used the FFmpeg library.
+*/
+
+class MediaTranscodeClass
+{
+   def xwiki;
+   def xcontext;
+   def services;
+   def commandRunner;
+   def recommendedVideoEncodingSettings = [
+              ["description" : "2160p", "type": "standard frame bitrate", "bitrate": ["35000k","45000k"], "frameRate": ["24", "25", "30"], "resolution": "3840x2160"],
+              ["description" : "2160p", "type": "high frame bitrate", "bitrate": ["53000k", "68000k"], "frameRate": ["48", "50", "60"], "resolution": "3840x2160"],
+              ["description" : "1440p", "type": "standard frame bitrate", "bitrate": "16000k", "frameRate": ["24", "25", "30"], "resolution": "2560x1440"],
+              ["description" : "1440p", "type": "high frame bitrate", "bitrate": "24000k", "frameRate": ["48", "50", "60"], "resolution": "2560x1440"],
+              ["description" : "1080p", "type": "standard frame bitrate", "bitrate": "8000k", "frameRate": ["24", "25", "30"], "resolution": "1920x1080"],
+              ["description" : "1080p", "type": "high frame bitrate", "bitrate": "12000k", "frameRate": ["48", "50", "60"], "resolution": "1920x1080"],
+              ["description" : "720p", "type": "standard frame bitrate", "bitrate": "5000k", "frameRate": ["24", "25", "30"], "resolution": "1280x720"],
+              ["description" : "720p", "type": "high frame bitrate", "bitrate": "7500k", "frameRate": ["48", "50", "60"], "resolution": "1280x720"],
+              ["description" : "480p", "type": "standard frame bitrate", "bitrate": "2500k", "frameRate": ["24", "25", "30"], "resolution": "854x480"],
+              ["description" : "480p", "type": "high frame bitrate", "bitrate": "4000k", "frameRate": ["48", "50", "60"], "resolution": "854x480"],
+              ["description" : "360p", "type": "standard frame bitrate", "bitrate": "1000k", "frameRate": ["24", "25", "30"], "resolution": "640x360"],
+              ["description" : "360p", "type": "high frame bitrate", "bitrate": "1500k", "frameRate": ["48", "50", "60"], "resolution": "640x360"],
+              ["description" : "240p", "type": "standard frame bitrate", "bitrate": ["300k", "700k"], "frameRate": ["24", "25", "30"], "resolution": "426x240"]
+           ];
+   def recommendedAudioEncodingSettings = [
+                                ["description" : "Mono", "bitrate": "128k"],
+                                ["description" : "Stereo", "bitrate": "384k"],
+                                ["description" : "5.1", "bitrate": "512k"]
+                             ];
+
+   /** Initialize the class */
+   void init(xwiki, xcontext, services)
+   {
+      this.xwiki = xwiki;
+      this.xcontext = xcontext;
+      this.services = services;
+      this.commandRunner = services.commandRunner;
+   }
+   
+   /**
+   * Return the duration of a video
+   * 
+   * @param videoPath the path of the video file in the filesystem
+   * @param format the format of the returned value
+   * format = 's' the duration is in seconds
+   * format='hms' the duration is in 'HOURS:MM:SS.MICROSECONDS' time unit format
+   * @return the duration of the video 
+   * return the duration if the command excuted successfully or -1 otherwise.
+   */
+   def getVideoDuration(videoPath, format = 's'){
+      def durationFormat = (format == 'hms') ? '-sexagesimal ' : '';
+      def cmd = 'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ' + durationFormat + videoPath;
+      def result = this.commandRunner.run(cmd, '', 1000);
+      def rep = -1;
+      if(result.error == 'none'){
+         rep = result.stdout;
+      }
+      return rep;
+   }
+
+   /**
+   * Return the size of a video
+   * 
+   * @param videoPath the path of the video file in the filesystem
+   * @param sizeUnit the unit of the returned size (B : default, KB, MB, GB)
+   * @return the size of the video 
+   * return the size if the command excuted successfully or -1 otherwise.
+   */
+   def getVideoSize(videoPath, sizeUnit = 'B'){
+      def sizeUnits = ['KB', 'MB', 'GB'];
+      def cmd = 'ffprobe -v error -show_entries format=size -of default=noprint_wrappers=1 ' + videoPath;
+      def result = this.commandRunner.run(cmd, '', 1000);
+      def rep = -1;
+      if(result.error == 'none'){
+         rep = result.stdout.replace('size=', '');
+         if(sizeUnit != 'B' &amp;&amp; sizeUnits.contains(sizeUnit)){
+            if(sizeUnit == 'KB'){
+               rep = rep.toInteger()/(1000);
+            }
+            else if(sizeUnit == 'MB'){
+               rep = rep.toInteger()/(1000*1000);
+            }
+            else if(sizeUnit == 'GB'){
+               rep = rep.toInteger()/(1000*1000*1000);
+            }
+         }
+      }
+      return rep;
+   }
+
+   /**
+   * Return the resolution of a video
+   * 
+   * @param videoPath the path of the video file in the filesystem
+   * @param retMode the type of the returned value
+   * retMode == 'arr', the returned value is an array containing the video resolution info [W,H]
+   * retMode == 's', the returned value is a string widthxHeight
+   * @return the resolution of the video (WidthxHeight) in pixels
+   * return the resolution if the command excuted successfully or -1 otherwise.
+   */
+   def getVideoResolution(videoPath, retMode = 'arr'){
+      def cmd = 'ffprobe -v error -of flat=s=_ -select_streams v:0 -show_entries stream=height,width ' + videoPath;
+      def result = this.commandRunner.run(cmd, '', 1000);
+      def rep = -1;
+      if(result.error == 'none'){
+         rep = result.stdout.replace("streams_stream_0_width=", "").replace("streams_stream_0_height=", "");
+         rep = rep.split("\n");
+         if(retMode == 's' &amp;&amp; rep.size() == 2){
+            rep = rep[0] + "x" + rep[1];
+         }
+      }
+      return rep;
+   }
+
+   /**
+   * Generate the video encoding command
+   * @param videoPath the path of the video file in the filesystem
+   * @param targetVideoDir the target directory that will contains the encoded video
+   * @param option the video encoding options (Resolution, bitrate ...)
+   * @param videoCodec the codec that will be used to encode the source video
+   * @return the ffmpeg encoding command 
+   */
+   def generateVideoEncodingCommand(videoPath, targetVideoDir, options, videoCodec = "libvpx-vp9"){
+      def cmd = '';
+      if(videoCodec == "libvpx-vp9"){
+         cmd = 'ffmpeg -i ' + videoPath + ' -c:v libvpx-vp9';
+         // Resolution
+         cmd += ' -s ' + options.resolution;
+         // Bitrate
+         def bitrate = (options.bitrate instanceof String) ? options.bitrate : options.bitrate[0];
+         cmd += ' -b:v ' + bitrate;
+         // other parameters
+         cmd += ' -keyint_min 150 -g 150';
+         // Dash parameters
+         cmd += ' -tile-columns 4 -frame-parallel 1 ';
+         cmd += ' -an -f webm -dash 1';
+         // Target video name
+         cmd += ' ' + targetVideoDir + '/' + 'video_' + options.resolution + '_' + bitrate + '.webm';
+      }
+      return cmd;
+   }
+
+   /**
+   * Generate the audio encoding command
+   * @param audioPath the path of the video/audio file in the filesystem
+   * @param targetAudioDir the target directory that will contains the encoded audio
+   * @param option the audio encoding options (Bitrate ...)
+   * @param audioCodec the codec that will be used to encode the source audio
+   * @return the ffmpeg encoding command 
+   */
+   def generateAudioEncodingCommand(audioPath, targetAudioDir, options, audioCodec = "libvorbis"){
+      def cmd = '';
+      if(audioCodec == "libvorbis"){
+         cmd = 'ffmpeg -i ' + audioPath + ' -c:a libvorbis';
+         // Bitrate
+         def bitrate = (options.bitrate instanceof String) ? options.bitrate : options.bitrate[0];
+         cmd += ' -b:a ' + bitrate;
+         // other parameters
+         cmd += ' -vn -f webm';
+         // Dash parameters
+         cmd += ' -dash 1';
+         // Target video name
+         cmd += ' ' + targetAudioDir + '/' + 'audio_' + bitrate + '.webm';
+      }
+      return cmd;
+   }
+  
+   /**
+   * Encode a video : generate all video and audio stream
+   * @param videoPath the path of the video file in the filesystem
+   * @param targetVideoDir the target directory that will contains the encoded files
+   * @param videoCodec the codec that will be used to encode the source video
+   */
+   void encodeVideo(videoPath, targetVideoDir, videoCodec="libvpx-vp9", videoEncodingSettings = this.recommendedVideoEncodingSettings){
+      if(videoCodec == "libvpx-vp9"){
+         // Generate videos streams
+         for(options in videoEncodingSettings){
+            def cmd = generateVideoEncodingCommand(videoPath, targetVideoDir, options, videoCodec);
+            runVideoEncoding(cmd);
+         }
+         // Generate audio stream
+         def cmd = generateAudioEncodingCommand(videoPath, targetVideoDir, this.recommendedAudioEncodingSettings[0]);
+         runAudioEncoding(cmd);
+      }
+   }
+  
+   /**
+   * Run video encoding command
+   * @param cmd the video encoding command to execute
+   */
+   def runVideoEncoding(cmd){
+      def timeOut = 3600000;//Todo: calculate the estimated time of the video encode
+      this.commandRunner.run(cmd, '', timeOut);
+   }
+   
+   /**
+   * Run audio encoding command
+   * @param cmd the audio encoding command to execute
+   */
+   def runAudioEncoding(cmd){
+      def timeOut = 3600000;//Todo: calculate the estimated time of the audio encode
+      this.commandRunner.run(cmd, '', timeOut);
+   }
+
+   /**
+   * Generate the DASH manifest xml file
+   * @param streamDirectory the directory that contains all video and audio stream files
+   * @return the created manifest file path
+   */
+   def generateDASHManifest(streamsDirectory){
+      // Check if the directory exists
+      def result = this.commandRunner.run('ls ' + streamsDirectory, '', 1000);
+      if(result.error == 'none' &amp;&amp; result.ret == '0'){//The directory exists
+         def dirContent = this.commandRunner.run('ls -1 *.webm ' + streamsDirectory, '', 1000);
+         def results = dirContent.stdout.split("\n");
+         def streams = [];
+         if(results.size() &gt; 0){
+            for(r in results){
+               if(r.endsWith('.webm')){
+                  streams.add(r);
+               }
+            }
+         }
+         if(streams.size() &gt; 0){
+            def cmd = 'ffmpeg';
+            def param1 = ' -c copy';
+            def param2 = ' adaptation_sets "id=0,streams=0';
+            def i = 0;
+            for(stream in streams){
+               cmd += ' -f webm_dash_manifest -i ' + stream;
+               param1 += ' -map ' + i.toString();
+               if(i &gt; 0){
+                  if(i &lt;= streams.size() - 1){
+                     if(i &lt; streams.size() - 1){
+                        param2 += ',' + i.toString();
+                     }
+                     else
+                     {
+                        param2 += ' id=1,streams=' + i.toString() + '"';
+                     }
+                  }
+               }
+               i++;
+            }
+            cmd = cmd + param1 + ' -f webm_dash_manifest' + param2 + ' manifest.mpd';
+            cmd = 'cd ' + streamsDirectory + ';' + cmd;return cmd;
+            // Run the command
+            def timeOut = 3600000;//Todo: calculate the estimated time of the audio encode
+            return this.commandRunner.run(cmd, '', timeOut);
+            return streamsDirectory + '/' + 'manifest.mpd';
+         }
+      }
+      else
+      {
+         return "Streams directory not found!";
+      }
+   }
+}</content>
+</xwikidoc>
