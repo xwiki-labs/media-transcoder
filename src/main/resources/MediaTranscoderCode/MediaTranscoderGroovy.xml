@@ -80,6 +80,21 @@ class MediaTranscodeClass
    }
    
    /**
+   * Check the ffmpeg installation
+   * 
+   * @return FFmpeg installed version if FFmpeg installed, false otherwise. 
+   */
+   def checkFFmpeg(){
+      def rep = false;
+      def cmd = "ffmpeg -version";
+      def result = this.commandRunner.run(cmd, '', 10000);
+      if(result.error == 'none' &amp;&amp; result.ret == "0"){
+         rep = result.stdout;
+      }
+      return rep;
+   }
+
+   /**
    * Return the duration of a video
    * 
    * @param videoPath the path of the video file in the filesystem
@@ -96,10 +111,13 @@ class MediaTranscodeClass
       def rep = -1;
       if(result.error == 'none'){
          rep = result.stdout;
+         if(format == 's'){
+            rep = rep.toFloat();//Duration in secondes
+         }
       }
       return rep;
    }
-
+   
    /**
    * Return the size of a video
    * 
@@ -176,6 +194,8 @@ class MediaTranscodeClass
          // Dash parameters
          cmd += ' -tile-columns 4 -frame-parallel 1 ';
          cmd += ' -an -f webm -dash 1';
+         // Set -analyzeduration and -probesize options
+         cmd += ' -analyzeduration 1000000000 -probesize 1000000000';
          // Target video name
          cmd += ' ' + targetVideoDir + '/' + 'video_' + options.resolution + '_' + bitrate + '.webm';
       }
@@ -288,7 +308,7 @@ class MediaTranscodeClass
             cmd = 'cd ' + streamsDirectory + ';' + cmd;return cmd;
             // Run the command
             def timeOut = 3600000;//Todo: calculate the estimated time of the audio encode
-            return this.commandRunner.run(cmd, '', timeOut);
+            this.commandRunner.run(cmd, '', timeOut);
             return streamsDirectory + '/' + 'manifest.mpd';
          }
       }
