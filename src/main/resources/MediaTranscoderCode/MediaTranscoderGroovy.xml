@@ -49,20 +49,15 @@ class MediaTranscodeClass
    def xcontext;
    def services;
    def commandRunner;
+   // Video settings for 16:9 format
    def recommendedVideoEncodingSettings = [
-              ["description" : "2160p", "type": "standard frame bitrate", "bitrate": ["35000k","45000k"], "frameRate": ["24", "25", "30"], "resolution": "3840x2160"],
-              ["description" : "2160p", "type": "high frame bitrate", "bitrate": ["53000k", "68000k"], "frameRate": ["48", "50", "60"], "resolution": "3840x2160"],
-              ["description" : "1440p", "type": "standard frame bitrate", "bitrate": "16000k", "frameRate": ["24", "25", "30"], "resolution": "2560x1440"],
-              ["description" : "1440p", "type": "high frame bitrate", "bitrate": "24000k", "frameRate": ["48", "50", "60"], "resolution": "2560x1440"],
-              ["description" : "1080p", "type": "standard frame bitrate", "bitrate": "8000k", "frameRate": ["24", "25", "30"], "resolution": "1920x1080"],
-              ["description" : "1080p", "type": "high frame bitrate", "bitrate": "12000k", "frameRate": ["48", "50", "60"], "resolution": "1920x1080"],
-              ["description" : "720p", "type": "standard frame bitrate", "bitrate": "5000k", "frameRate": ["24", "25", "30"], "resolution": "1280x720"],
-              ["description" : "720p", "type": "high frame bitrate", "bitrate": "7500k", "frameRate": ["48", "50", "60"], "resolution": "1280x720"],
-              ["description" : "480p", "type": "standard frame bitrate", "bitrate": "2500k", "frameRate": ["24", "25", "30"], "resolution": "854x480"],
-              ["description" : "480p", "type": "high frame bitrate", "bitrate": "4000k", "frameRate": ["48", "50", "60"], "resolution": "854x480"],
-              ["description" : "360p", "type": "standard frame bitrate", "bitrate": "1000k", "frameRate": ["24", "25", "30"], "resolution": "640x360"],
-              ["description" : "360p", "type": "high frame bitrate", "bitrate": "1500k", "frameRate": ["48", "50", "60"], "resolution": "640x360"],
-              ["description" : "240p", "type": "standard frame bitrate", "bitrate": ["300k", "700k"], "frameRate": ["24", "25", "30"], "resolution": "426x240"]
+              ["description" : "2160p", "type": "standard frame bitrate", "bitrate": ["35000k","45000k"], "frameRate": ["24", "25", "30"], "resolution": "3840x2160", "width": 3840, "height": 2160],
+              ["description" : "1440p", "type": "standard frame bitrate", "bitrate": "16000k", "frameRate": ["24", "25", "30"], "resolution": "2560x1440", "width": 2560, "height": 1440],
+              ["description" : "1080p", "type": "standard frame bitrate", "bitrate": "8000k", "frameRate": ["24", "25", "30"], "resolution": "1920x1080", "width": 1920, "height": 1080],
+              ["description" : "720p", "type": "standard frame bitrate", "bitrate": "5000k", "frameRate": ["24", "25", "30"], "resolution": "1280x720", "width": 1280, "height": 720],
+              ["description" : "480p", "type": "standard frame bitrate", "bitrate": "2500k", "frameRate": ["24", "25", "30"], "resolution": "854x480", "width": 854, "height": 480],
+              ["description" : "360p", "type": "standard frame bitrate", "bitrate": "1000k", "frameRate": ["24", "25", "30"], "resolution": "640x360", "width": 640, "height": 360],
+              ["description" : "240p", "type": "standard frame bitrate", "bitrate": ["300k", "700k"], "frameRate": ["24", "25", "30"], "resolution": "426x240", "width": 426, "height": 240]
            ];
    def recommendedAudioEncodingSettings = [
                                 ["description" : "Mono", "bitrate": "128k"],
@@ -112,8 +107,26 @@ class MediaTranscodeClass
       if(result.error == 'none'){
          rep = result.stdout;
          if(format == 's'){
-            rep = rep.toFloat();//Duration in secondes
+            rep = (rep != "") ? rep.toFloat() : 0;//Duration in secondes
          }
+      }
+      return rep;
+   }
+
+   /**
+   * Return the bitrate of a video
+   * 
+   * @param videoPath the path of the video file in the filesystem
+   * @return the bitrate of the video (kbps) 
+   * return the bitrate if the command excuted successfully or -1 otherwise.
+   */
+   def getVideoBitrate(videoPath){
+      def cmd = 'ffprobe -v error -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1 ' + videoPath;
+      def result = this.commandRunner.run(cmd, '', 1000);
+      def rep = -1;
+      if(result.error == 'none'){
+         rep = result.stdout;
+         rep = (rep != "") ? Math.floor(rep.toInteger()/1000).toInteger() : 0;// Return Integer
       }
       return rep;
    }
@@ -185,10 +198,16 @@ class MediaTranscodeClass
       if(videoCodec == "libvpx-vp9"){
          cmd = 'ffmpeg -i ' + videoPath + ' -c:v libvpx-vp9';
          // Resolution
-         cmd += ' -s ' + options.resolution;
+         cmd += ' -s ' + options.width.toString() + "x" + options.height.toString();
          // Bitrate
-         def bitrate = (options.bitrate instanceof String) ? options.bitrate : options.bitrate[0];
-         cmd += ' -b:v ' + bitrate;
+         def bitrate = (options.bitrate instanceof String) ? options.bitrate : options.bitrate[0] + '-' + options.bitrate[1];
+         if(options.bitrate instanceof String){
+            cmd += ' -b:v ' + options.bitrate;
+         }
+         else
+         {
+            cmd += ' -minrate ' + options.bitrate[0] + ' -maxrate ' + options.bitrate[1];
+         }
          // other parameters
          cmd += ' -keyint_min 150 -g 150';
          // Dash parameters
@@ -228,12 +247,42 @@ class MediaTranscodeClass
    }
   
    /**
+   * Get the list of adequate encoding settings of a given video
+   * @param videoPath the path of the video file in the filesystem
+   * @return the list of settings 
+   */
+   def getVideoEncodingSettingsList(videoPath){
+      def settings = [];
+      def resolution = this.getVideoResolution(videoPath);
+      if(resolution &amp;&amp; resolution.size() == 2){
+         def sourceW = resolution[0].toInteger();
+         def sourceH = resolution[1].toInteger();
+         for(options in this.recommendedVideoEncodingSettings){
+            if(options.width &lt;= sourceW){
+               // Get target width and height
+               def res = this.getVideoTargetResolution(sourceW, sourceH, options.width, options.height);
+               if(res &amp;&amp; res.size() == 2){
+                  options.width = res.targetW;
+                  options.height = res.targetH;
+                  settings.add(options);
+               }
+            }
+         }
+      }
+      return settings;
+   }
+
+   /**
    * Encode a video : generate all video and audio stream
    * @param videoPath the path of the video file in the filesystem
    * @param targetVideoDir the target directory that will contains the encoded files
    * @param videoCodec the codec that will be used to encode the source video
    */
-   void encodeVideo(videoPath, targetVideoDir, videoCodec="libvpx-vp9", videoEncodingSettings = this.recommendedVideoEncodingSettings){
+   void encodeVideo(videoPath, targetVideoDir, videoCodec="libvpx-vp9", videoEncodingSettings = null){
+      if(videoEncodingSettings == null){
+         // Generate the list of options
+         videoEncodingSettings = this.getVideoEncodingSettingsList(videoPath);
+      }
       if(videoCodec == "libvpx-vp9"){
          // Generate videos streams
          for(options in videoEncodingSettings){
@@ -245,7 +294,7 @@ class MediaTranscodeClass
          runAudioEncoding(cmd);
       }
    }
-  
+
    /**
    * Run video encoding command
    * @param cmd the video encoding command to execute
@@ -263,6 +312,49 @@ class MediaTranscodeClass
       def timeOut = 3600000;//Todo: calculate the estimated time of the audio encode
       this.commandRunner.run(cmd, '', timeOut);
    }
+
+   /**
+   * Extract image from a video
+   * @param videoPath path of the video
+   * @param targetDir path of the directory where the image will be saved, 
+   * by defaut it is the home directory of the user
+   * @param imageFormat format of the image (by default: jpg)
+   */   
+  
+   def extractImageFromVideo(videoPath, targetDir = "", imageFormat = "jpg"){
+      def cmd;
+      if(targetDir !=  ""){
+         cmd = "ffmpeg -i " + videoPath + " -frames:v 1 -ss 00:01:00 -f image2 " + targetDir + "/image." + imageFormat;
+      }
+      else
+      {
+         cmd = "ffmpeg -i " + videoPath + " -frames:v 1 -ss 00:01:00 -f image2 ~/image." + imageFormat;
+      }
+      return this.commandRunner.run(cmd, '', 100000);
+   }
+
+   /**
+   * Get the target resolution for a source video based on a desired target resolution
+   * that repect the original ratio
+   * @param sourceW source video width
+   * @param sourceH source video height
+   * @param dTargetW desired video width
+   * @param dTargetH desired video height
+   * @return target video with and height [W, H]
+   */   
+   def getVideoTargetResolution(sourceW, sourceH, dTargetW, dTargetH){
+      def targetW = dTargetW;
+      def targetH = dTargetH;
+      def h = Math.round( (dTargetW/sourceW)*sourceH );
+      def w = Math.round( (dTargetH/sourceH)*sourceW );
+      if(h &gt; dTargetH){
+         targetW = w;
+      }
+      else{
+         targetH = h;
+      }
+      return ["targetW": targetW, "targetH": targetH];
+   }  
 
    /**
    * Generate the DASH manifest xml file
