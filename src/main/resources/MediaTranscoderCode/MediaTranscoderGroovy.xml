@@ -44,12 +44,18 @@
 * This class is used to decode, encode, transcode, stream video and audio media, it is used the FFmpeg library.
 */
 
+import java.io.File;
+import java.io.FileOutputStream;
+import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.io.FileUtils;
 class MediaTranscodeClass
 {
    def xwiki;
    def xcontext;
    def services;
    def commandRunner;
+   FilenameUtils fileNameUtils;
+   FileUtils FileUtils;
    // Video settings for 16:9 format
    def recommendedVideoEncodingSettings = [
               ["description" : "2160p", "type": "standard frame bitrate", "bitrate": ["35000k","45000k"], "frameRate": ["24", "25", "30"], "resolution": "3840x2160", "width": 3840, "height": 2160],
@@ -73,6 +79,8 @@ class MediaTranscodeClass
       this.xcontext = xcontext;
       this.services = services;
       this.commandRunner = services.commandRunner;
+      this.fileNameUtils = new FilenameUtils();
+      this.fileUtils = new FileUtils();
    }
    
    /**
@@ -215,7 +223,7 @@ class MediaTranscodeClass
          cmd += ' -tile-columns 4 -frame-parallel 1 ';
          cmd += ' -an -f webm -dash 1';
          // Set -analyzeduration and -probesize options
-         cmd += ' -analyzeduration 1000000000 -probesize 1000000000';
+         cmd += ' -analyzeduration 2147483647 -probesize 2147483647';
          // Target video name
          cmd += ' ' + targetVideoDir + '/' + 'video_' + options.resolution + '_' + bitrate + '.webm';
       }
@@ -293,6 +301,8 @@ class MediaTranscodeClass
          // Generate audio stream
          def cmd = generateAudioEncodingCommand(videoPath, targetVideoDir, this.recommendedAudioEncodingSettings[0]);
          runAudioEncoding(cmd);
+         // Generate manifest.mpd file
+         def manifestPath = this.generateDASHManifest(targetVideoDir);
       }
    }
 
@@ -364,43 +374,37 @@ class MediaTranscodeClass
    */
    def generateDASHManifest(streamsDirectory){
       // Check if the directory exists
-      def result = this.commandRunner.run('ls ' + streamsDirectory, '', 1000);
-      if(result.error == 'none' &amp;&amp; result.ret == '0'){//The directory exists
-         def dirContent = this.commandRunner.run('ls -1 *.webm ' + streamsDirectory, '', 1000);
-         def results = dirContent.stdout.split("\n");
-         def streams = [];
-         if(results.size() &gt; 0){
-            for(r in results){
-               if(r.endsWith('.webm')){
-                  streams.add(r);
-               }
-            }
-         }
+      File dir = new File(streamsDirectory);
+      if(dir.exists()){
+         String[] ext = new String[1];
+         ext[0] = "webm";
+         def streams = this.fileUtils.listFiles(dir, ext, true);
          if(streams.size() &gt; 0){
-            def cmd = 'ffmpeg';
+            // Sort all stream by size
+            streams = streams.findAll { it.isFile() }.sort { it.length() };
+            def audioStream = streams[0].getPath();
+            def cmd = 'ffmpeg -y';
             def param1 = ' -c copy';
-            def param2 = ' adaptation_sets "id=0,streams=0';
+            def param2 = ' -adaptation_sets "id=0,streams=0';
             def i = 0;
             for(stream in streams){
-               cmd += ' -f webm_dash_manifest -i ' + stream;
-               param1 += ' -map ' + i.toString();
-               if(i &gt; 0){
-                  if(i &lt;= streams.size() - 1){
-                     if(i &lt; streams.size() - 1){
+               if(stream.getPath() != audioStream){
+                  cmd += ' -f webm_dash_manifest -i ' + stream.getPath();
+                  param1 += ' -map ' + i.toString();
+                  if(i &gt; 0){
+                     if(i &lt;= streams.size() - 1){
                         param2 += ',' + i.toString();
                      }
-                     else
-                     {
-                        param2 += ' id=1,streams=' + i.toString() + '"';
-                     }
                   }
+                  i++;
                }
-               i++;
             }
-            cmd = cmd + param1 + ' -f webm_dash_manifest' + param2 + ' manifest.mpd';
-            cmd = 'cd ' + streamsDirectory + ';' + cmd;return cmd;
+            cmd = cmd + ' -f webm_dash_manifest -i ' + audioStream;
+            param1 += ' -map ' + (streams.size() -1).toString();
+            param2 += ' id=1,streams=' + (streams.size() -1).toString() + '"'; 
+            cmd = cmd + param1 + ' -f webm_dash_manifest' + param2 + ' ' + streamsDirectory + '/manifest.mpd';
             // Run the command
-            def timeOut = 3600000;//Todo: calculate the estimated time of the audio encode
+            def timeOut = 3600000;//Todo: calculate the estimated time of the manifest file generation
             this.commandRunner.run(cmd, '', timeOut);
             return streamsDirectory + '/' + 'manifest.mpd';
          }
