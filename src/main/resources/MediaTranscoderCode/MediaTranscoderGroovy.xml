@@ -231,6 +231,33 @@ class MediaTranscodeClass
    }
 
    /**
+   * Generate the flv video encoding command
+   * @param videoPath the path of the video file in the filesystem
+   * @param targetVideoDir the target directory that will contains the encoded video
+   * @param option the video encoding options (Resolution, bitrate ...)
+   * @return the ffmpeg encoding command 
+   */
+   def generateFlvEncodingCommand(videoPath, targetVideoDir, options){
+      def cmd = '';
+      cmd = 'ffmpeg -i ' + videoPath + ' -c:v libx264';
+      // Bitrate
+      if(options.bitrate instanceof String){
+         cmd += ' -b:v ' + options.bitrate;
+      }
+      else
+      {
+         cmd += ' -b:v ' + options.bitrate[0];
+      }
+      // Resolution
+      cmd += ' -s ' + options.width.toString() + "x" + options.height.toString();
+      // other parameters
+      cmd += ' -f flv ';
+      // Target video name
+      cmd += ' ' + targetVideoDir + '/' + 'video.flv';
+      return cmd;
+   }
+
+   /**
    * Generate the audio encoding command
    * @param audioPath the path of the video/audio file in the filesystem
    * @param targetAudioDir the target directory that will contains the encoded audio
@@ -301,6 +328,10 @@ class MediaTranscodeClass
          // Generate audio stream
          def cmd = generateAudioEncodingCommand(videoPath, targetVideoDir, this.recommendedAudioEncodingSettings[0]);
          runAudioEncoding(cmd);
+         // Generate the flv video with the lowest quality that will be played if the browser do not support MSE.
+         def lowQualityOptions = videoEncodingSettings[videoEncodingSettings.size() - 1];
+         cmd = generateFlvEncodingCommand(videoPath, targetVideoDir, lowQualityOptions);
+         runVideoEncoding(cmd);
          // Generate manifest.mpd file
          def manifestPath = this.generateDASHManifest(targetVideoDir);
       }
