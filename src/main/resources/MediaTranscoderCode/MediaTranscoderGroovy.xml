@@ -48,6 +48,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.FileUtils;
+import java.util.ArrayList;
 class MediaTranscodeClass
 {
    def xwiki;
@@ -222,8 +223,6 @@ class MediaTranscodeClass
          // Dash parameters
          cmd += ' -tile-columns 4 -frame-parallel 1 ';
          cmd += ' -an -f webm -dash 1';
-         // Set -analyzeduration and -probesize options
-         cmd += ' -analyzeduration 2147483647 -probesize 2147483647';
          // Target video name
          cmd += ' ' + targetVideoDir + '/' + 'video_' + options.resolution + '_' + bitrate + '.webm';
       }
@@ -328,7 +327,7 @@ class MediaTranscodeClass
          // Generate audio stream
          def cmd = generateAudioEncodingCommand(videoPath, targetVideoDir, this.recommendedAudioEncodingSettings[0]);
          runAudioEncoding(cmd);
-         // Generate the flv video with the lowest quality that will be played if the browser do not support MSE.
+         // Generate the flv vidéo with the lowest quality that will be played if the browser do not support MSE.
          def lowQualityOptions = videoEncodingSettings[videoEncodingSettings.size() - 1];
          cmd = generateFlvEncodingCommand(videoPath, targetVideoDir, lowQualityOptions);
          runVideoEncoding(cmd);
@@ -414,29 +413,47 @@ class MediaTranscodeClass
             // Sort all stream by size
             streams = streams.findAll { it.isFile() }.sort { it.length() };
             def audioStream = streams[0].getPath();
-            def cmd = 'ffmpeg -y';
-            def param1 = ' -c copy';
-            def param2 = ' -adaptation_sets "id=0,streams=0';
+            ArrayList&lt;String&gt; cmdAL = new ArrayList&lt;String&gt;();
+            cmdAL.add('ffmpeg');
+            cmdAL.add('-y');
+            ArrayList&lt;String&gt; param1AL = new ArrayList&lt;String&gt;();
+            param1AL.add('-c');
+            param1AL.add('copy');
+            ArrayList&lt;String&gt; param2AL = new ArrayList&lt;String&gt;();
+            param2AL.add('-adaptation_sets');
+            param2AL.add('id=0,streams=0');
             def i = 0;
             for(stream in streams){
                if(stream.getPath() != audioStream){
-                  cmd += ' -f webm_dash_manifest -i ' + stream.getPath();
-                  param1 += ' -map ' + i.toString();
+                  cmdAL.add('-f');
+                  cmdAL.add('webm_dash_manifest');
+                  cmdAL.add('-i');
+                  cmdAL.add(stream.getPath());
+                  param1AL.add('-map');
+                  param1AL.add(i.toString());
                   if(i &gt; 0){
                      if(i &lt;= streams.size() - 1){
-                        param2 += ',' + i.toString();
+                        param2AL.set(1, param2AL.get(1) + ',' + i.toString());
                      }
                   }
                   i++;
                }
             }
-            cmd = cmd + ' -f webm_dash_manifest -i ' + audioStream;
-            param1 += ' -map ' + (streams.size() -1).toString();
-            param2 += ' id=1,streams=' + (streams.size() -1).toString() + '"'; 
-            cmd = cmd + param1 + ' -f webm_dash_manifest' + param2 + ' ' + streamsDirectory + '/manifest.mpd';
+            cmdAL.add('-f');
+            cmdAL.add('webm_dash_manifest');
+            cmdAL.add('-i');
+            cmdAL.add(audioStream);
+            param1AL.add('-map');
+            param1AL.add((streams.size() -1).toString());
+            param2AL.set(1, param2AL.get(1) + ' id=1,streams=' + (streams.size() -1).toString());
+            cmdAL.addAll(param1AL);
+            cmdAL.add('-f');
+            cmdAL.add('webm_dash_manifest');
+            cmdAL.addAll(param2AL);
+            cmdAL.add(streamsDirectory + '/manifest.mpd');
             // Run the command
             def timeOut = 3600000;//Todo: calculate the estimated time of the manifest file generation
-            this.commandRunner.run(cmd, '', timeOut);
+            def rep = this.commandRunner.run(cmdAL, '', timeOut);
             return streamsDirectory + '/' + 'manifest.mpd';
          }
       }
